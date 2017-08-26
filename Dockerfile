@@ -1,7 +1,4 @@
-FROM scratch
-ADD go-bob-status /
-
-ARG github_token
-ARG jenkins_user
-ARG jenkins_password
-CMD ["/go-bob-status", "-u", "$jenkins_user", "-p", "$jenkins_password", "-t", "$github_token"]
+FROM golang:onbuild
+ADD . /go/src/github.com/shell/go-bob-status
+RUN go install github.com/shell/go-bob-status
+CMD ["/go/bin/go-bob-status", "-t",  "$GITHUB_TOKEN", "-u", "$JENKINS_USER", "-p", "$JENKINS_PASSWORD"]

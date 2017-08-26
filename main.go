@@ -34,7 +34,7 @@ func getGitHubClient(gitHubToken string) (*github.Client, *context.Context) {
 }
 
 func getJenkinsClient(jenkinsUsername, jenkinsPassword string) *gojenkins.Jenkins {
-	client := gojenkins.CreateJenkins("https://ci.rev.com", jenkinsUsername, jenkinsPassword)
+	client := gojenkins.CreateJenkins(nil, "http://ci.rev.com", jenkinsUsername, jenkinsPassword)
 
 	_, err := client.Init()
 	if err != nil {
