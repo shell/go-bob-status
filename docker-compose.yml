@@ -1,9 +1,14 @@
 version: '3.2'
 services:
   cli: 
-    build: ./
+    build:
+      context: .
+      args:
+        github_token: ___
+        jenkins_user: ___
+        jenkins_password: ___
     depends_on:
       - redis
 
   redis:
-    image: "redis:alpine"
+    image: redis:alpine
