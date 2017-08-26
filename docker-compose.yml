@@ -1,0 +1,9 @@
+version: '3.2'
+services:
+  cli: 
+    build: ./
+    depends_on:
+      - redis
+
+  redis:
+    image: "redis:alpine"
