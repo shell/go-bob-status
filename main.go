@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bndr/gojenkins"
+	"github.com/go-redis/redis"
 	"github.com/google/go-github/github"
 	flags "github.com/jessevdk/go-flags"
 	"golang.org/x/oauth2"
@@ -15,6 +17,9 @@ import (
 const (
 	gitHubOwner = "revdotcom"
 	gitHubRepo  = "revdotcom"
+	noColor     = "\033[0m"
+	colorGreen  = "\033[0;32m"
+	colorRed    = "\033[0;31m"
 )
 
 type opts struct {
@@ -34,29 +39,45 @@ func getGitHubClient(gitHubToken string) (*github.Client, *context.Context) {
 }
 
 func getJenkinsClient(jenkinsUsername, jenkinsPassword string) *gojenkins.Jenkins {
-	client := gojenkins.CreateJenkins(nil, "http://ci.rev.com", jenkinsUsername, jenkinsPassword)
+	client := gojenkins.CreateJenkins(nil, "https://ci.rev.com", jenkinsUsername, jenkinsPassword)
 
-	_, err := client.Init()
-	if err != nil {
+	if _, err := client.Init(); err != nil {
 		panic("Something went wrong")
 	}
 
 	return client
 }
 
+func getRedisClient() *redis.Client {
+	client := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	if _, err := client.Ping().Result(); err != nil {
+		panic("can't connect to Redis")
+	}
+	return client
+}
+
+func getRedisKey(sha string) string {
+	return "github:" + gitHubRepo + ":" + sha
+}
+
 func main() {
 	args := opts{}
 	parser := flags.NewParser(&args, flags.Default)
 
-	_, erra := parser.Parse()
-	if erra != nil {
+	if _, err := parser.Parse(); err != nil {
 		os.Exit(1)
 	}
 
 	ghClient, ctx := getGitHubClient(args.GithubToken)
-	client := getJenkinsClient(args.JenkinsUsername, args.JenkinsPassword)
+	jenkinsClient := getJenkinsClient(args.JenkinsUsername, args.JenkinsPassword)
+	redisClient := getRedisClient()
 
-	jobs, errj := client.GetAllJobs()
+	jobs, errj := jenkinsClient.GetAllJobs()
 
 	if errj != nil {
 		panic("can't fetch jobs")
@@ -80,13 +101,24 @@ func main() {
 				}
 			}
 			buildURL := build.GetUrl() + "console" // Point to the console log directly
-
-			repoStatus := github.RepoStatus{
-				State:     &status,
-				TargetURL: &buildURL,
+			statusColor := colorGreen
+			if status != "success" {
+				statusColor = colorRed
 			}
-			ghClient.Repositories.CreateStatus(*ctx, gitHubOwner, gitHubRepo, sha, &repoStatus)
-			fmt.Printf("sha: %v with status: %v\n", sha, status)
+
+			rStatus, rErr := redisClient.Get(getRedisKey(sha)).Result()
+
+			if rErr != nil || rStatus != status {
+				repoStatus := github.RepoStatus{
+					State:     &status,
+					TargetURL: &buildURL,
+				}
+				ghClient.Repositories.CreateStatus(*ctx, gitHubOwner, gitHubRepo, sha, &repoStatus)
+				redisClient.Set(getRedisKey(sha), status, time.Hour*24*14)
+				fmt.Printf("%vsha: %v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
+			} else {
+				fmt.Printf("%vsha[Cache]: \033[1;30m%v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
+			}
 		}
 	}
 }
