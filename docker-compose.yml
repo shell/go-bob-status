@@ -6,6 +6,5 @@ services:
     env_file: env.list
     depends_on:
       - redis
-
   redis:
     image: redis:alpine

@@ -101,13 +101,13 @@ func main() {
 				}
 			}
 			buildURL := build.GetUrl() + "console" // Point to the console log directly
+
 			statusColor := colorGreen
 			if status != "success" {
 				statusColor = colorRed
 			}
 
 			rStatus, rErr := redisClient.Get(getRedisKey(sha)).Result()
-
 			if rErr != nil || rStatus != status {
 				repoStatus := github.RepoStatus{
 					State:     &status,
@@ -115,7 +115,8 @@ func main() {
 				}
 				ghClient.Repositories.CreateStatus(*ctx, gitHubOwner, gitHubRepo, sha, &repoStatus)
 				redisClient.Set(getRedisKey(sha), status, time.Hour*24*14)
-				fmt.Printf("%vsha: %v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
+
+				fmt.Printf("%vsha: %v with status: %v%v\n", noColor, sha, statusColor, status)
 			} else {
 				fmt.Printf("%vsha[Cache]: \033[1;30m%v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
 			}
