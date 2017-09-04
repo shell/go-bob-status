@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bndr/gojenkins"
@@ -83,44 +84,52 @@ func main() {
 		panic("can't fetch jobs")
 	}
 
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(len(jobs))
+
+	defer waitGroup.Wait()
+
 	for _, job := range jobs {
-		jobName := job.GetName()
+		go func(j gojenkins.Job) {
+			defer waitGroup.Done()
 
-		if strings.HasPrefix(jobName, "Rev.com-build-feature_") {
-			build, _ := job.GetLastBuild()
-			sha := build.GetRevision()
+			jobName := j.GetName()
 
-			var status string
-			if build.IsRunning() {
-				status = "pending"
-			} else {
-				if build.IsGood() {
-					status = "success"
+			if strings.HasPrefix(jobName, "Rev.com-build-feature_") {
+				build, _ := j.GetLastBuild()
+				sha := build.GetRevision()
+
+				var status string
+				if build.IsRunning() {
+					status = "pending"
 				} else {
-					status = "failure"
+					if build.IsGood() {
+						status = "success"
+					} else {
+						status = "failure"
+					}
+				}
+				buildURL := build.GetUrl() + "console" // Point to the console log directly
+
+				statusColor := colorGreen
+				if status != "success" {
+					statusColor = colorRed
+				}
+
+				rStatus, rErr := redisClient.Get(getRedisKey(sha)).Result()
+				if rErr != nil || rStatus != status {
+					repoStatus := github.RepoStatus{
+						State:     &status,
+						TargetURL: &buildURL,
+					}
+					ghClient.Repositories.CreateStatus(*ctx, gitHubOwner, gitHubRepo, sha, &repoStatus)
+					redisClient.Set(getRedisKey(sha), status, time.Hour*24*14)
+
+					fmt.Printf("%vsha: %v with status: %v%v\n", noColor, sha, statusColor, status)
+				} else {
+					fmt.Printf("%vsha[Cache]: \033[1;30m%v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
 				}
 			}
-			buildURL := build.GetUrl() + "console" // Point to the console log directly
-
-			statusColor := colorGreen
-			if status != "success" {
-				statusColor = colorRed
-			}
-
-			rStatus, rErr := redisClient.Get(getRedisKey(sha)).Result()
-			if rErr != nil || rStatus != status {
-				repoStatus := github.RepoStatus{
-					State:     &status,
-					TargetURL: &buildURL,
-				}
-				ghClient.Repositories.CreateStatus(*ctx, gitHubOwner, gitHubRepo, sha, &repoStatus)
-				redisClient.Set(getRedisKey(sha), status, time.Hour*24*14)
-
-				fmt.Printf("%vsha: %v with status: %v%v\n", noColor, sha, statusColor, status)
-			} else {
-				fmt.Printf("%vsha[Cache]: \033[1;30m%v %vwith status: %v%v\n", noColor, sha, noColor, statusColor, status)
-			}
-		}
+		}(*job)
 	}
 }
-
